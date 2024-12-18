@@ -1,0 +1,73 @@
+pipeline {
+    agent any
+    stages {
+        stage("checkout") {
+            steps {
+                echo "récupération du projet"
+                git branch: "main",
+                credentialsId: "jenkssh3",
+                url: "git@github.com:markrossi93/projethub.git"
+            }
+        }
+        stage("compile") {
+            steps {
+               echo "compilation du projet"
+               sh './mvnw compile'
+            }
+        }
+        stage("tests") {
+            steps {
+                echo "tests unitaires et tests d'intégration"
+                sh './mvnw test'
+            }
+        }
+        stage("package") {
+            steps {
+                echo "création du package de l'application"
+                sh './mvnw package'
+            }
+        }
+        stage("image docker") {
+            steps {
+              echo "création de l'image docker"
+              sh 'docker build -t registry.gretadevops.com:5000/calculator .'
+            }
+        }
+        stage ("push registry") {
+            steps {
+              echo "push de l'image sur le registry"
+              sh 'docker push registry.gretadevops.com:5000/calculator'
+            }
+        }
+        stage ("test deploiement") {
+            steps {
+                echo "test deploiement"
+                sh 'docker run -d --name calculatortest --net gretadevops.com --ip=172.40.0.111 -p 4080:8080 registry.gretadevops.com:5000/calculator'
+                sh 'sleep 10'
+                script {
+                    def response = httpRequest 'http://calculatortest.gretadevops.com:8080/sum?a=5&b=6'
+                    if (response.status != 200 || response.content != '11') {
+                        error "error in test to add 5 to 6"
+                    }
+                }
+            }
+        }
+        stage("deploiement") {
+            steps {
+              echo "déploiement de l'application"
+            }
+        }
+    }
+    // l'option post permet de lancer systématiquement certaines commandes apres la fin d'un pipeline
+    post {
+        // post possede 3 sous-options en fonction de l'etat de la pipeline a la fin:
+        // always est lancé quelque soit l'état de réussite de sortie, success seulement si
+        // on est arrivé au bout sans erreur, et failure au contraire si on obtient un 
+        // code d'erreur lors d'un step.
+        always {
+            mail to: "kouame.marc.stephane@gmail.com",
+            subject: "this pipeline failed.",
+            body: "you're a failure."
+        }
+    }
+}
